@@ -1,12 +1,15 @@
 require("dotenv").config();
 const express = require("express");
-const app = express();
+const fetch = require("node-fetch");
 
+const app = express();
 app.use(express.json());
 
-app.post("/generate", async (req, res) => {
-  const fetch = (await import("node-fetch")).default;
+app.get("/", (req, res) => {
+  res.send("Genesis AI Backend is running 🚀");
+});
 
+app.post("/generate", async (req, res) => {
   const apiKey = process.env.OPENROUTER_KEY;
   const input = req.body.input;
 
@@ -41,9 +44,8 @@ app.post("/generate", async (req, res) => {
   }
 });
 
-// 🔥 REQUIRED for Render
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log(`Server running on port ${PORT}`);
 });
