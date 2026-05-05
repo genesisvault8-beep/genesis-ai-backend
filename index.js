@@ -1,7 +1,10 @@
 require("dotenv").config();
-const functions = require("firebase-functions");
+const express = require("express");
+const app = express();
 
-exports.generateReport = functions.https.onRequest(async (req, res) => {
+app.use(express.json());
+
+app.post("/generate", async (req, res) => {
   const fetch = (await import("node-fetch")).default;
 
   const apiKey = process.env.OPENROUTER_KEY;
@@ -19,7 +22,7 @@ exports.generateReport = functions.https.onRequest(async (req, res) => {
         messages: [
           {
             role: "system",
-            content: "You are a professional bug bounty report writer. Format clear reports with title, severity, steps, impact, and fix."
+            content: "You are a professional bug bounty report writer."
           },
           {
             role: "user",
@@ -33,6 +36,14 @@ exports.generateReport = functions.https.onRequest(async (req, res) => {
     res.json(data);
 
   } catch (err) {
+    console.error(err);
     res.status(500).send("Error generating report");
   }
+});
+
+// 🔥 REQUIRED for Render
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
 });
