@@ -1,14 +1,17 @@
 require("dotenv").config();
+
 const express = require("express");
 const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json());
 
+/* ROOT */
 app.get("/", (req, res) => {
-  res.send("Genesis AI Backend is running 🚀");
+  res.send("AI Backend Running ✅");
 });
 
+/* AI ROUTE */
 app.post("/generate", async (req, res) => {
   const apiKey = process.env.OPENROUTER_KEY;
   const input = req.body.input;
@@ -23,14 +26,8 @@ app.post("/generate", async (req, res) => {
       body: JSON.stringify({
         model: "openai/gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: "You are a professional bug bounty report writer."
-          },
-          {
-            role: "user",
-            content: input
-          }
+          { role: "system", content: "You are a bug bounty report writer." },
+          { role: "user", content: input }
         ]
       })
     });
@@ -44,8 +41,9 @@ app.post("/generate", async (req, res) => {
   }
 });
 
+/* SERVER */
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("Server running on port " + PORT);
 });
