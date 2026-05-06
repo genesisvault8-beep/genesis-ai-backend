@@ -4,6 +4,7 @@ const express = require("express");
 const fetch = require("node-fetch");
 
 const app = express();
+
 app.use(express.json());
 
 /* ROOT */
@@ -26,8 +27,14 @@ app.post("/generate", async (req, res) => {
       body: JSON.stringify({
         model: "openai/gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are a bug bounty report writer." },
-          { role: "user", content: input }
+          {
+            role: "system",
+            content: "You are a professional bug bounty report writer."
+          },
+          {
+            role: "user",
+            content: input
+          }
         ]
       })
     });
