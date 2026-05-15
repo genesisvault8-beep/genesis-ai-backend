@@ -73,6 +73,13 @@ const AI_POOL = [
     active: true
   },
   {
+    name: "SambaNova",
+    url: "https://api.sambanova.ai/v1/chat/completions",
+    model: "Meta-Llama-3.3-70B-Instruct",
+    keyEnv: "SAMBANOVA_KEY",
+    active: true
+  },
+  {
     name: "OpenRouter",
     url: "https://openrouter.ai/api/v1/chat/completions",
     model: "openai/gpt-4o-mini",
@@ -211,7 +218,6 @@ app.post("/api/vault-ai", async (req, res) => {
   try {
     const { text, provider } = await infinityAsk(VAULT_IDENTITY, message, engine || null);
     const tokens = estimateTokens(message) + estimateTokens(text);
-    // Log async — don't block response
     logToSupabase({ user_id, username, user_query: message, ai_response: text, provider, rank_level: rank, tokens_used: tokens });
     res.json({ response: text, provider, tokens_used: tokens });
   } catch (err) {
@@ -223,7 +229,6 @@ app.post("/api/vault-ai", async (req, res) => {
 // ADMIN ROUTES
 // ============================================
 
-// Verify admin token against Flask backend admins table
 async function verifyAdminToken(token) {
   if (!token) return false;
   try {
@@ -234,7 +239,6 @@ async function verifyAdminToken(token) {
   }
 }
 
-// GET /admin/ai-status — get all providers + active state
 app.get("/admin/ai-status", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
   const admin = await verifyAdminToken(token);
@@ -249,7 +253,6 @@ app.get("/admin/ai-status", async (req, res) => {
   res.json({ providers: status });
 });
 
-// POST /admin/ai-toggle — toggle a provider on/off + save to Supabase
 app.post("/admin/ai-toggle", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
   const admin = await verifyAdminToken(token);
@@ -260,7 +263,6 @@ app.post("/admin/ai-toggle", async (req, res) => {
   if (!ai) return res.status(404).json({ error: "Provider not found" });
 
   ai.active = active;
-  // Persist to Supabase
   try {
     const existing = await sb("ai_config", "GET", null, `?provider=eq.${name}&select=id`);
     if (Array.isArray(existing) && existing.length > 0) {
@@ -276,7 +278,6 @@ app.post("/admin/ai-toggle", async (req, res) => {
   res.json({ success: true, name, active });
 });
 
-// GET /admin/user-stats — per-user token usage
 app.get("/admin/user-stats", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
   const admin = await verifyAdminToken(token);
@@ -286,7 +287,6 @@ app.get("/admin/user-stats", async (req, res) => {
     const logs = await sb("ai_logs", "GET", null, "?select=username,tokens_used,provider,created_at&order=created_at.desc&limit=500");
     if (!Array.isArray(logs)) return res.json({ users: [] });
 
-    // Aggregate per user
     const map = {};
     logs.forEach(log => {
       const u = log.username || "anonymous";
@@ -304,7 +304,6 @@ app.get("/admin/user-stats", async (req, res) => {
   }
 });
 
-// GET /admin/recent-logs — recent AI conversations
 app.get("/admin/recent-logs", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
   const admin = await verifyAdminToken(token);
