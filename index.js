@@ -489,3 +489,295 @@ app.listen(PORT, async () => {
   console.log(`Active AI providers: ${AI_POOL.filter(a => a.hasKey()).map(a => a.name).join(", ")}`);
   await loadAIConfig();
 });
+
+// ============================================
+// BRIDGE HELPERS
+// ============================================
+
+function getNodeType(tools) {
+  const hunter = ["dalfox","sqlmap","nuclei","ffuf","ghauri","XSStrike","kxss","gobuster","feroxbuster","wfuzz"];
+  const scout  = ["nmap","subfinder","httpx","waybackurls","amass","assetfinder","theHarvester"];
+  if (tools.some(t => hunter.includes(t))) return "HUNTER";
+  if (tools.some(t => scout.includes(t)))  return "SCOUT";
+  return "GHOST";
+}
+
+function getSpecializations(tools) {
+  const specs = [];
+  if (["dalfox","XSStrike","kxss"].some(t => tools.includes(t)))               specs.push("XSS");
+  if (["sqlmap","ghauri"].some(t => tools.includes(t)))                         specs.push("SQLI");
+  if (["subfinder","amass","assetfinder","httpx"].some(t => tools.includes(t))) specs.push("RECON");
+  if (["ffuf","gobuster","feroxbuster","wfuzz"].some(t => tools.includes(t)))   specs.push("FUZZING");
+  if (["nuclei"].some(t => tools.includes(t)))                                  specs.push("CVE");
+  if (["theHarvester","sherlock"].some(t => tools.includes(t)))                 specs.push("OSINT");
+  if (["nmap"].some(t => tools.includes(t)))                                    specs.push("PORTSCAN");
+  if (specs.length === 0) specs.push("BASIC");
+  return specs;
+}
+
+function getVCReward(category) {
+  const rewards = { BASIC:1, RECON:3, XSS:5, SQLI:5, FUZZING:4, CVE:6, OSINT:3, PORTSCAN:2 };
+  return rewards[category] || 2;
+}
+
+async function creditVC(user_id, username, amount, description) {
+  try {
+    const user = await sb("users", "GET", null, `?id=eq.${user_id}&select=id,vc_balance`);
+    if (Array.isArray(user) && user.length > 0) {
+      const newBal = (user[0].vc_balance || 0) + amount;
+      await sb("users", "PATCH", { vc_balance: newBal }, `?id=eq.${user_id}`);
+    }
+    await sb("vc_ledger", "POST", { user_id, username, amount, type: "earned", description: description || "Bridge job" });
+    await sb("notifications", "POST", { user_id, username, message: `💰 +${amount} VC earned! ${description}`, read: false });
+    return true;
+  } catch(e) {
+    console.log("[VC] Credit failed:", e.message);
+    return false;
+  }
+}
+
+async function verifyMemberToken(token) {
+  if (!token) return false;
+  try {
+    const rows = await sb("users", "GET", null, `?token=eq.${encodeURIComponent(token)}&select=id,username,vc_balance,rank`);
+    return Array.isArray(rows) && rows.length > 0 ? rows[0] : false;
+  } catch(e) { return false; }
+}
+
+// ============================================
+// BRIDGE ROUTES — MEMBER SIDE
+// ============================================
+
+app.get("/bridge/validate", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user = await verifyMemberToken(token);
+  if (!user) return res.json({ valid: false });
+  res.json({ valid: true, username: user.username });
+});
+
+app.post("/bridge/register", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+
+  const { mode, installed_tools, device_info, version } = req.body;
+  const tools           = Array.isArray(installed_tools) ? installed_tools : [];
+  const node_type       = getNodeType(tools);
+  const specializations = getSpecializations(tools);
+  const bridge_id       = `bridge_${user.id}_${Date.now()}`;
+
+  try {
+    const existing = await sb("bridge_nodes", "GET", null, `?user_id=eq.${user.id}&select=id`);
+    const nodeData = {
+      user_id: user.id, username: user.username, bridge_id,
+      mode: mode || "manual", node_type, specializations,
+      installed_tools: tools, device_info: device_info || "Unknown",
+      version: version || "1.0.0", status: "online",
+      last_ping: new Date().toISOString()
+    };
+    if (Array.isArray(existing) && existing.length > 0) {
+      await sb("bridge_nodes", "PATCH", nodeData, `?user_id=eq.${user.id}`);
+    } else {
+      await sb("bridge_nodes", "POST", { ...nodeData, jobs_done: 0, vc_earned: 0 });
+    }
+    console.log(`[BRIDGE] ${user.username} online — ${node_type} (${specializations.join(",")})`);
+    res.json({ bridge_id, username: user.username, node_type, specializations, vc_balance: user.vc_balance || 0 });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/bridge/consent", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { mode, consent_given, consent_timestamp, consent_text } = req.body;
+  try {
+    await sb("bridge_nodes", "PATCH", { mode, consent_given, consent_timestamp, consent_text }, `?user_id=eq.${user.id}`);
+    res.json({ success: true });
+  } catch(e) { res.json({ success: false }); }
+});
+
+app.post("/bridge/ping", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { bridge_id } = req.body;
+  try {
+    await sb("bridge_nodes", "PATCH", { status: "online", last_ping: new Date().toISOString() }, `?bridge_id=eq.${bridge_id}`);
+    res.json({ ok: true });
+  } catch(e) { res.json({ ok: false }); }
+});
+
+app.get("/bridge/poll", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { bridge_id } = req.query;
+  try {
+    const node = await sb("bridge_nodes", "GET", null, `?bridge_id=eq.${bridge_id}&select=specializations`);
+    const specs = node?.[0]?.specializations || [];
+    const specsFilter = specs.map(s => `category.eq.${s}`).join(",");
+    const query = specsFilter
+      ? `?status=eq.queued&or=(${specsFilter},category.eq.BASIC)&order=created_at.asc&limit=1`
+      : `?status=eq.queued&order=created_at.asc&limit=1`;
+    const jobs = await sb("bridge_jobs", "GET", null, query);
+    if (!Array.isArray(jobs) || jobs.length === 0) return res.json({ job: null });
+    const job = jobs[0];
+    await sb("bridge_jobs", "PATCH", { status: "running", bridge_id, claimed_at: new Date().toISOString() }, `?id=eq.${job.id}`);
+    res.json({ job: { id: job.id, tool: job.tool, command: job.command, category: job.category, vc_reward: getVCReward(job.category) }});
+  } catch(e) { res.json({ job: null }); }
+});
+
+app.post("/bridge/result", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { bridge_id, job_id, output } = req.body;
+  try {
+    const jobs = await sb("bridge_jobs", "GET", null, `?id=eq.${job_id}&select=*`);
+    if (!Array.isArray(jobs) || jobs.length === 0) return res.status(404).json({ error: "Job not found" });
+    const job = jobs[0];
+    const vc_reward = getVCReward(job.category);
+    await sb("bridge_jobs", "PATCH", { status: "done", result: output, completed_at: new Date().toISOString(), vc_reward }, `?id=eq.${job_id}`);
+    const node = await sb("bridge_nodes", "GET", null, `?bridge_id=eq.${bridge_id}&select=jobs_done,vc_earned`);
+    if (Array.isArray(node) && node.length > 0) {
+      await sb("bridge_nodes", "PATCH", { jobs_done: (node[0].jobs_done||0)+1, vc_earned: (node[0].vc_earned||0)+vc_reward }, `?bridge_id=eq.${bridge_id}`);
+    }
+    const credited = await creditVC(user.id, user.username, vc_reward, `Bridge job: ${job.tool}`);
+    const updated  = await sb("users", "GET", null, `?id=eq.${user.id}&select=vc_balance`);
+    res.json({ success: true, vc_credited: credited, vc_reward, new_balance: updated?.[0]?.vc_balance || 0 });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/bridge/disconnect", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { bridge_id } = req.body;
+  try {
+    await sb("bridge_nodes", "PATCH", { status: "offline", last_ping: new Date().toISOString() }, `?bridge_id=eq.${bridge_id}`);
+    console.log(`[BRIDGE] ${user.username} disconnected`);
+    res.json({ success: true });
+  } catch(e) { res.json({ success: false }); }
+});
+
+app.post("/bridge/auto-install", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { installed_tools } = req.body;
+  try {
+    const registry = await sb("tool_registry", "GET", null, "?approved=eq.true&select=*");
+    if (!Array.isArray(registry)) return res.json({ tools: [] });
+    const toInstall = registry.filter(t => !installed_tools.includes(t.name));
+    res.json({ tools: toInstall });
+  } catch(e) { res.json({ tools: [] }); }
+});
+
+app.post("/bridge/tool-installed", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const user  = await verifyMemberToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  const { tool } = req.body;
+  try {
+    const node = await sb("bridge_nodes", "GET", null, `?user_id=eq.${user.id}&select=installed_tools`);
+    if (Array.isArray(node) && node.length > 0) {
+      const tools = [...(node[0].installed_tools||[]), tool];
+      await sb("bridge_nodes", "PATCH", { installed_tools: tools, node_type: getNodeType(tools), specializations: getSpecializations(tools) }, `?user_id=eq.${user.id}`);
+    }
+    res.json({ success: true });
+  } catch(e) { res.json({ success: false }); }
+});
+
+app.get("/bridge/install", async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(400).send("# Missing token");
+  const user = await verifyMemberToken(token);
+  if (!user) return res.status(401).send("# Invalid token. Get your token from your dashboard.");
+  const fs = require("fs");
+  const path = require("path");
+  const filePath = path.join(__dirname, "bridge.py");
+  if (!fs.existsSync(filePath)) return res.status(404).send("# Bridge script not available yet.");
+  res.setHeader("Content-Type", "text/plain");
+  fs.createReadStream(filePath).pipe(res);
+});
+
+// ============================================
+// BRIDGE ROUTES — ADMIN SIDE
+// ============================================
+
+app.get("/admin/bridges", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const nodes = await sb("bridge_nodes", "GET", null, "?select=*&order=last_ping.desc");
+    const now = Date.now();
+    const processed = (nodes||[]).map(n => ({
+      ...n,
+      status: (now - new Date(n.last_ping).getTime()) > 60000 ? "offline" : n.status
+    }));
+    res.json({ bridges: processed });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/admin/bridge-dispatch", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+  const { tool, command, category, target } = req.body;
+  if (!tool || !command) return res.status(400).json({ error: "tool and command required" });
+  try {
+    const job = await sb("bridge_jobs", "POST", {
+      tool, command, category: category||"BASIC", target: target||"",
+      status: "queued", dispatched_by: admin.username, vc_reward: getVCReward(category||"BASIC")
+    });
+    console.log(`[ADMIN] ${admin.username} dispatched ${tool} job`);
+    res.json({ success: true, job: job?.[0]||{} });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/admin/bridge-jobs", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const jobs = await sb("bridge_jobs", "GET", null, "?select=*&order=created_at.desc&limit=50");
+    res.json({ jobs: Array.isArray(jobs) ? jobs : [] });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/admin/tool-registry", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const tools = await sb("tool_registry", "GET", null, "?select=*&order=category.asc");
+    res.json({ tools: Array.isArray(tools) ? tools : [] });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/admin/tool-registry", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+  const { name, github_url, install_cmd, category, description } = req.body;
+  if (!name || !install_cmd || !category) return res.status(400).json({ error: "name, install_cmd, category required" });
+  try {
+    const tool = await sb("tool_registry", "POST", {
+      name, github_url: github_url||"", install_cmd, category,
+      description: description||"", approved: true, added_by: admin.username
+    });
+    res.json({ success: true, tool: tool?.[0]||{} });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch("/admin/tool-registry/:id", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+  const { approved } = req.body;
+  try {
+    await sb("tool_registry", "PATCH", { approved }, `?id=eq.${req.params.id}`);
+    res.json({ success: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
