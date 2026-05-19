@@ -260,6 +260,44 @@ async function verifyAdminToken(token) {
     return false;
   }
 }
+// Failure log
+app.get("/admin/failures", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const failures = await sb(
+      "ai_failures",
+      "GET",
+      null,
+      "?select=*&order=created_at.desc&limit=100"
+    );
+    res.json({ failures: Array.isArray(failures) ? failures : [] });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Rotation stats (today only)
+app.get("/admin/rotation-stats", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const stats = await sb(
+      "ai_rotation_stats",
+      "GET",
+      null,
+      `?date=eq.${today}&select=*&order=provider.asc`
+    );
+    res.json({ stats: Array.isArray(stats) ? stats : [], date: today });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get("/admin/ai-status", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
