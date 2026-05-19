@@ -29,64 +29,92 @@ async function sb(table, method = "GET", data = null, query = "") {
 // ============================================
 // GENESIS INFINITY ENGINE - AI POOL
 // ============================================
-const AI_POOL = [
-  {
-    name: "Cerebras",
-    url: "https://api.cerebras.ai/v1/chat/completions",
-    model: "llama3.1-8b",
-    keyEnv: "CEREBRAS_KEY",
-    active: true
-  },
-  {
-    name: "Groq",
-    url: "https://api.groq.com/openai/v1/chat/completions",
-    model: "llama-3.3-70b-versatile",
-    keyEnv: "GROQ_KEY",
-    active: true
-  },
-  {
-    name: "Gemini",
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    model: "gemini-2.0-flash",
-    keyEnv: "GEMINI_KEY",
-    active: true
-  },
-  {
-    name: "Mistral",
-    url: "https://api.mistral.ai/v1/chat/completions",
-    model: "mistral-large-latest",
-    keyEnv: "MISTRAL_KEY",
-    active: true
-  },
-  {
-    name: "Together",
-    url: "https://api.together.xyz/v1/chat/completions",
-    model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-    keyEnv: "TOGETHER_KEY",
-    active: true
-  },
-  {
-    name: "DeepSeek",
-    url: "https://api.deepseek.com/v1/chat/completions",
-    model: "deepseek-chat",
-    keyEnv: "DEEPSEEK_KEY",
-    active: true
-  },
-  {
-    name: "SambaNova",
-    url: "https://api.sambanova.ai/v1/chat/completions",
-    model: "Meta-Llama-3.3-70B-Instruct",
-    keyEnv: "SAMBANOVA_KEY",
-    active: true
-  },
-  {
-    name: "OpenRouter",
-    url: "https://openrouter.ai/api/v1/chat/completions",
-    model: "openai/gpt-4o-mini",
-    keyEnv: "OPENROUTER_KEY",
-    active: true
-  }
-];
+const rrIndex = {};
+const rrKeyIndex = {};
+
+function getRoundRobinKey(groupName, keys) {
+  if (!rrIndex[groupName]) rrIndex[groupName] = 0;
+  const idx = rrIndex[groupName] % keys.length;
+  const key = keys[idx];
+  rrKeyIndex[groupName] = idx + 1;
+  rrIndex[groupName]++;
+  return key;
+}
+
+function buildPool() {
+  return [
+    {
+      name: "Groq",
+      url: "https://api.groq.com/openai/v1/chat/completions",
+      model: "llama-3.3-70b-versatile",
+      getKey: () => getRoundRobinKey("groq", [
+        process.env.GROQ_KEY1,
+        process.env.GROQ_KEY2,
+        process.env.GROQ_KEY3
+      ].filter(Boolean)),
+      hasKey: () => !!(process.env.GROQ_KEY1 || process.env.GROQ_KEY2 || process.env.GROQ_KEY3),
+      active: true
+    },
+    {
+      name: "Gemini",
+      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      model: "gemini-2.0-flash",
+      getKey: () => getRoundRobinKey("gemini", [
+        process.env.GEMINI_KEY,
+        process.env.GEMINI_KEY2,
+        process.env.GEMINI_KEY3
+      ].filter(Boolean)),
+      hasKey: () => !!(process.env.GEMINI_KEY || process.env.GEMINI_KEY2 || process.env.GEMINI_KEY3),
+      active: true
+    },
+    {
+      name: "OpenRouter",
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      model: "openai/gpt-4o-mini",
+      getKey: () => getRoundRobinKey("openrouter", [
+        process.env.OPENROUTER_KEY,
+        process.env.OPENROUTER_KEY2,
+        process.env.OPENROUTER_KEY3
+      ].filter(Boolean)),
+      hasKey: () => !!(process.env.OPENROUTER_KEY || process.env.OPENROUTER_KEY2 || process.env.OPENROUTER_KEY3),
+      active: true
+    },
+    {
+      name: "Cerebras",
+      url: "https://api.cerebras.ai/v1/chat/completions",
+      model: "llama3.1-8b",
+      getKey: () => process.env.CEREBRAS_KEY,
+      hasKey: () => !!process.env.CEREBRAS_KEY,
+      active: true
+    },
+    {
+      name: "Mistral",
+      url: "https://api.mistral.ai/v1/chat/completions",
+      model: "mistral-large-latest",
+      getKey: () => process.env.MISTRAL_KEY,
+      hasKey: () => !!process.env.MISTRAL_KEY,
+      active: true
+    },
+    {
+      name: "SambaNova",
+      url: "https://api.sambanova.ai/v1/chat/completions",
+      model: "Meta-Llama-3.3-70B-Instruct",
+      getKey: () => process.env.SAMBANOVA_KEY,
+      hasKey: () => !!process.env.SAMBANOVA_KEY,
+      active: true
+    },
+    {
+      name: "HuggingFace",
+      url: "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions",
+      model: "Qwen2.5-72B-Instruct",
+      getKey: () => process.env.HUGGINGFACE_KEY,
+      hasKey: () => !!process.env.HUGGINGFACE_KEY,
+      active: true
+    }
+  ];
+}
+
+let AI_POOL = buildPool();
 
 // Load ai_config from Supabase on startup
 async function loadAIConfig() {
