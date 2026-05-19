@@ -165,6 +165,46 @@ async function logToSupabase({ user_id, username, user_query, ai_response, provi
 }
 
 // ============================================
+// LOG FAILURE TO SUPABASE
+// ============================================
+async function logFailure(provider, keyIndex, reason, statusCode) {
+  try {
+    await sb("ai_failures", "POST", {
+      provider,
+      key_index: keyIndex || 1,
+      reason: reason || "UNKNOWN",
+      status_code: statusCode || null
+    });
+  } catch (e) {
+    console.log("[FAILURE LOG] Failed to log:", e.message);
+  }
+}
+
+// ============================================
+// TRACK ROTATION STATS
+// ============================================
+async function trackRotation(provider, keyIndex) {
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const existing = await sb(
+      "ai_rotation_stats", "GET", null,
+      `?provider=eq.${provider}&date=eq.${today}&select=id,requests`
+    );
+    if (Array.isArray(existing) && existing.length > 0) {
+      await sb("ai_rotation_stats", "PATCH",
+        { requests: (existing[0].requests || 0) + 1 },
+        `?provider=eq.${provider}&date=eq.${today}`
+      );
+    } else {
+      await sb("ai_rotation_stats", "POST",
+        { provider, key_index: keyIndex, date: today, requests: 1 }
+      );
+    }
+  } catch (e) {
+    console.log("[ROTATION] Track failed:", e.message);
+  }
+}
+// ============================================
 // INFINITY ENGINE CORE - Auto Failover
 // ============================================
 async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
