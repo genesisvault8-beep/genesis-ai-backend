@@ -140,30 +140,40 @@ async function logToSupabase({ user_id, username, user_query, ai_response, provi
 // INFINITY ENGINE CORE - Auto Failover
 // ============================================
 async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
-  let pool = AI_POOL.filter(ai => ai.active && process.env[ai.keyEnv]);
+  let pool = AI_POOL.filter(ai => ai.active && ai.hasKey());
+  if (pool.length === 0) throw new Error("No active AI providers available");
 
-  // Manual engine select
   if (engineOverride) {
-    const specific = AI_POOL.find(a => a.name.toLowerCase() === engineOverride.toLowerCase());
-    if (specific && process.env[specific.keyEnv]) {
+    const specific = pool.find(a => a.name.toLowerCase() === engineOverride.toLowerCase());
+    if (specific) {
       pool = [specific, ...pool.filter(a => a.name !== specific.name)];
     }
   }
 
-  if (pool.length === 0) throw new Error("No active AI providers available");
-
   let lastError = null;
+
   for (const ai of pool) {
+    const apiKey = ai.getKey();
+    if (!apiKey) continue;
+
+    // Track which key index is being used
+    const keyIndex = rrIndex[ai.name.toLowerCase()] || 1;
+
     try {
-      console.log(`[INFINITY ENGINE] Trying ${ai.name}...`);
+      console.log(`[INFINITY ENGINE] Trying ${ai.name} (${ai.model})...`);
+
+      // Track rotation stat
+      trackRotation(ai.name, keyIndex);
+
       const response = await fetch(ai.url, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env[ai.keyEnv]}`,
+          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           model: ai.model,
+          max_tokens: 2048,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userMessage }
@@ -172,24 +182,36 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       });
 
       if (response.status === 429) {
-        console.log(`[INFINITY ENGINE] ${ai.name} rate limited. Switching...`);
+        console.log(`[INFINITY ENGINE] ${ai.name} rate limited — switching...`);
+        logFailure(ai.name, keyIndex, "RATE_LIMITED", 429);
+        continue;
+      }
+
+      if (response.status === 503 || response.status === 502) {
+        console.log(`[INFINITY ENGINE] ${ai.name} unavailable (${response.status}) — switching...`);
+        logFailure(ai.name, keyIndex, "SERVICE_DOWN", response.status);
         continue;
       }
 
       const data = await response.json();
       const text = data?.choices?.[0]?.message?.content;
+
       if (!text) {
-        console.log(`[INFINITY ENGINE] ${ai.name} returned empty. Switching...`);
+        console.log(`[INFINITY ENGINE] ${ai.name} returned empty — switching...`);
+        logFailure(ai.name, keyIndex, "EMPTY_RESPONSE", response.status);
         continue;
       }
 
       console.log(`[INFINITY ENGINE] ${ai.name} responded ✅`);
       return { text, provider: ai.name };
-    } catch (err) {
+
+    } catch(err) {
       console.log(`[INFINITY ENGINE] ${ai.name} failed: ${err.message}`);
+      logFailure(ai.name, keyIndex, "TIMEOUT", null);
       lastError = err;
     }
   }
+
   throw new Error("All AI providers failed: " + (lastError?.message || "Unknown"));
 }
 
