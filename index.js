@@ -336,7 +336,7 @@ app.get("/admin/ai-status", async (req, res) => {
     name: ai.name,
     model: ai.model,
     active: ai.active,
-    hasKey: !!process.env[ai.keyEnv]
+    hasKey: ai.hasKey()
   }));
   res.json({ providers: status });
 });
@@ -486,6 +486,6 @@ app.get("/api/session", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Genesis Vault // Infinity Engine running on port ${PORT}`);
-  console.log(`Active AI providers: ${AI_POOL.filter(a => process.env[a.keyEnv]).map(a => a.name).join(", ")}`);
+  console.log(`Active AI providers: ${AI_POOL.filter(a => a.hasKey()).map(a => a.name).join(", ")}`);
   await loadAIConfig();
 });
