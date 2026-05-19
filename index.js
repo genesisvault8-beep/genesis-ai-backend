@@ -408,7 +408,7 @@ app.get("/admin/recent-logs", async (req, res) => {
 // Legacy routes
 app.get("/infinity/status", (req, res) => {
   const status = AI_POOL.map(ai => ({
-    name: ai.name, model: ai.model, active: ai.active, hasKey: !!process.env[ai.keyEnv]
+    name: ai.name, model: ai.model, active: ai.active, hasKey: ai.hasKey()
   }));
   res.json({ engine: "Genesis Infinity Engine", providers: status });
 });
