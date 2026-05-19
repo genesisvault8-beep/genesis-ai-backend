@@ -163,7 +163,42 @@ async function logToSupabase({ user_id, username, user_query, ai_response, provi
     console.log("[LOG] Failed to log to Supabase:", e.message);
   }
 }
+// ============================================
+// LOGGING HELPERS
+// ============================================
+async function logFailure(provider, keyIndex, errorType, errorCode) {
+  try {
+    await sb("ai_failures", "POST", {
+      provider,
+      key_index: keyIndex,
+      error_type: errorType,
+      error_code: errorCode || null
+    });
+  } catch(e) {
+    console.log("[FAILURE LOG] Could not log:", e.message);
+  }
+}
 
+async function trackRotation(provider, keyIndex) {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const existing = await sb("ai_rotation_stats", "GET", null,
+      `?provider=eq.${provider}&key_index=eq.${keyIndex}&date=eq.${today}&select=id,call_count`
+    );
+    if (Array.isArray(existing) && existing.length > 0) {
+      await sb("ai_rotation_stats", "PATCH",
+        { call_count: existing[0].call_count + 1 },
+        `?provider=eq.${provider}&key_index=eq.${keyIndex}&date=eq.${today}`
+      );
+    } else {
+      await sb("ai_rotation_stats", "POST",
+        { provider, key_index: keyIndex, date: today, call_count: 1 }
+      );
+    }
+  } catch(e) {
+    console.log("[ROTATION] Could not track:", e.message);
+  }
+}
 // ============================================
 // INFINITY ENGINE CORE - Auto Failover
 // ============================================
