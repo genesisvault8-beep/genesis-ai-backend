@@ -58,15 +58,6 @@ function markKeyRateLimited(groupName, keyIndex, cooldownMs = 60000) {
 
 function buildPool() {
   return [
-    // ⚡ LOCAL TERMUX AI — highest priority, free, no limits
-    {
-      name: "Local",
-      url: process.env.LOCAL_AI_URL || "http://localhost:8080/v1/chat/completions",
-      model: "phi2",
-      getKey: () => "local",
-      hasKey: () => !!process.env.LOCAL_AI_URL,
-      active: true
-    },
     {
       name: "Groq",
       url: "https://api.groq.com/openai/v1/chat/completions",
@@ -104,6 +95,14 @@ function buildPool() {
       active: true
     },
     {
+      name: "Cerebras",
+      url: "https://api.cerebras.ai/v1/chat/completions",
+      model: "llama3.1-8b",
+      getKey: () => process.env.CEREBRAS_KEY,
+      hasKey: () => !!process.env.CEREBRAS_KEY,
+      active: true
+    },
+    {
       name: "Mistral",
       url: "https://api.mistral.ai/v1/chat/completions",
       model: "mistral-large-latest",
@@ -120,21 +119,12 @@ function buildPool() {
       active: true
     },
     {
-      name: "Cerebras",
-      url: "https://api.cerebras.ai/v1/chat/completions",
-      model: "llama3.1-8b",
-      getKey: () => process.env.CEREBRAS_KEY,
-      hasKey: () => !!process.env.CEREBRAS_KEY,
-      active: true
-    },
-    // HuggingFace disabled — free inference API too unreliable
-    {
       name: "HuggingFace",
-      url: "https://api-inference.huggingface.co/v1/chat/completions",
+      url: "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct/v1/chat/completions",
       model: "meta-llama/Meta-Llama-3-8B-Instruct",
       getKey: () => process.env.HUGGINGFACE_KEY,
       hasKey: () => !!process.env.HUGGINGFACE_KEY,
-      active: false
+      active: true
     }
   ];
 }
@@ -258,21 +248,16 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       // Track rotation stat
       trackRotation(ai.name, keyIndex);
 
-      const aiUrl = ai.url;
-
-      const headers = { "Content-Type": "application/json" };
-      if (ai.name === "Gemini") {
-        headers["Authorization"] = `Bearer ${apiKey}`;
-        headers["x-goog-api-key"] = apiKey;
-      } else if (ai.name === "Local") {
-        // Local AI needs no auth
-      } else {
-        headers["Authorization"] = `Bearer ${apiKey}`;
-      }
+      const aiUrl = ai.name === "Gemini"
+        ? `${ai.url}?key=${apiKey}`
+        : ai.url;
 
       const response = await fetch(aiUrl, {
         method: "POST",
-        headers,
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
         body: JSON.stringify({
           model: ai.model,
           max_tokens: 2048,
