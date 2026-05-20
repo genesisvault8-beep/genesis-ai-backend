@@ -31,14 +31,29 @@ async function sb(table, method = "GET", data = null, query = "") {
 // ============================================
 const rrIndex = {};
 const rrKeyIndex = {};
+const rateLimitedUntil = {};
 
 function getRoundRobinKey(groupName, keys) {
   if (!rrIndex[groupName]) rrIndex[groupName] = 0;
+  const now = Date.now();
+  for (let i = 0; i < keys.length; i++) {
+    const idx = (rrIndex[groupName] + i) % keys.length;
+    const key = keys[idx];
+    const limitedUntil = rateLimitedUntil[`${groupName}_${idx}`] || 0;
+    if (now > limitedUntil) {
+      rrKeyIndex[groupName] = idx + 1;
+      rrIndex[groupName] = idx + 1;
+      return key;
+    }
+  }
   const idx = rrIndex[groupName] % keys.length;
-  const key = keys[idx];
-  rrKeyIndex[groupName] = idx + 1;
   rrIndex[groupName]++;
-  return key;
+  return keys[idx];
+}
+
+function markKeyRateLimited(groupName, keyIndex, cooldownMs = 60000) {
+  rateLimitedUntil[`${groupName}_${keyIndex - 1}`] = Date.now() + cooldownMs;
+  console.log(`[KEY ROTATION] ${groupName} key ${keyIndex} rate-limited for ${cooldownMs/1000}s`);
 }
 
 function buildPool() {
@@ -105,8 +120,8 @@ function buildPool() {
     },
     {
       name: "HuggingFace",
-      url: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3/v1/chat/completions",
-      model: "mistralai/Mistral-7B-Instruct-v0.3",
+      url: "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct/v1/chat/completions",
+      model: "meta-llama/Meta-Llama-3-8B-Instruct",
       getKey: () => process.env.HUGGINGFACE_KEY,
       hasKey: () => !!process.env.HUGGINGFACE_KEY,
       active: true
@@ -256,6 +271,7 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       if (response.status === 429) {
         console.log(`[INFINITY ENGINE] ${ai.name} rate limited — switching...`);
         logFailure(ai.name, keyIndex, "RATE_LIMITED", 429);
+        markKeyRateLimited(ai.name.toLowerCase(), keyIndex, 60000);
         continue;
       }
 
