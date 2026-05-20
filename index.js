@@ -58,6 +58,15 @@ function markKeyRateLimited(groupName, keyIndex, cooldownMs = 60000) {
 
 function buildPool() {
   return [
+    // ⚡ LOCAL TERMUX AI — highest priority, free, no limits
+    {
+      name: "Local",
+      url: process.env.LOCAL_AI_URL || "http://localhost:8080/v1/chat/completions",
+      model: "phi2",
+      getKey: () => "local",
+      hasKey: () => !!process.env.LOCAL_AI_URL,
+      active: true
+    },
     {
       name: "Groq",
       url: "https://api.groq.com/openai/v1/chat/completions",
@@ -72,7 +81,7 @@ function buildPool() {
     },
     {
       name: "Gemini",
-      url: "https://generativelanguage.googleapis.com/v1beta/chat/completions",
+      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       model: "gemini-2.0-flash",
       getKey: () => getRoundRobinKey("gemini", [
         process.env.GEMINI_KEY,
@@ -95,14 +104,6 @@ function buildPool() {
       active: true
     },
     {
-      name: "Cerebras",
-      url: "https://api.cerebras.ai/v1/chat/completions",
-      model: "llama3.1-8b",
-      getKey: () => process.env.CEREBRAS_KEY,
-      hasKey: () => !!process.env.CEREBRAS_KEY,
-      active: true
-    },
-    {
       name: "Mistral",
       url: "https://api.mistral.ai/v1/chat/completions",
       model: "mistral-large-latest",
@@ -119,12 +120,21 @@ function buildPool() {
       active: true
     },
     {
+      name: "Cerebras",
+      url: "https://api.cerebras.ai/v1/chat/completions",
+      model: "llama3.1-8b",
+      getKey: () => process.env.CEREBRAS_KEY,
+      hasKey: () => !!process.env.CEREBRAS_KEY,
+      active: true
+    },
+    // HuggingFace disabled — free inference API too unreliable
+    {
       name: "HuggingFace",
       url: "https://api-inference.huggingface.co/v1/chat/completions",
       model: "meta-llama/Meta-Llama-3-8B-Instruct",
       getKey: () => process.env.HUGGINGFACE_KEY,
       hasKey: () => !!process.env.HUGGINGFACE_KEY,
-      active: true
+      active: false
     }
   ];
 }
@@ -252,7 +262,10 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
 
       const headers = { "Content-Type": "application/json" };
       if (ai.name === "Gemini") {
+        headers["Authorization"] = `Bearer ${apiKey}`;
         headers["x-goog-api-key"] = apiKey;
+      } else if (ai.name === "Local") {
+        // Local AI needs no auth
       } else {
         headers["Authorization"] = `Bearer ${apiKey}`;
       }
