@@ -317,11 +317,23 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
         continue;
       }
       const data = JSON.parse(rawBody);
+
+      // Show actual API error so we can debug Gemini issues
+      if (!response.ok) {
+        const errMsg = data?.error?.message || data?.error || rawBody.slice(0, 200);
+        console.log(`[INFINITY ENGINE] ${ai.name} error (${response.status}): ${errMsg}`);
+        logFailure(ai.name, keyIndex, String(errMsg).slice(0, 100), response.status);
+        lastError = new Error(`${ai.name}: ${errMsg}`);
+        continue;
+      }
+
       const text = data?.choices?.[0]?.message?.content;
 
       if (!text) {
-        console.log(`[INFINITY ENGINE] ${ai.name} returned empty — switching...`);
-        logFailure(ai.name, keyIndex, "EMPTY_RESPONSE", response.status);
+        const errMsg = data?.error?.message || "Empty response";
+        console.log(`[INFINITY ENGINE] ${ai.name} returned empty — ${errMsg}`);
+        logFailure(ai.name, keyIndex, String(errMsg).slice(0, 100), response.status);
+        lastError = new Error(`${ai.name}: ${errMsg}`);
         continue;
       }
 
