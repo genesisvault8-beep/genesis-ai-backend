@@ -72,7 +72,7 @@ function buildPool() {
     },
     {
       name: "Gemini",
-      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      url: "https://generativelanguage.googleapis.com/v1beta/chat/completions",
       model: "gemini-2.0-flash",
       getKey: () => getRoundRobinKey("gemini", [
         process.env.GEMINI_KEY,
@@ -120,7 +120,7 @@ function buildPool() {
     },
     {
       name: "HuggingFace",
-      url: "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct/v1/chat/completions",
+      url: "https://api-inference.huggingface.co/v1/chat/completions",
       model: "meta-llama/Meta-Llama-3-8B-Instruct",
       getKey: () => process.env.HUGGINGFACE_KEY,
       hasKey: () => !!process.env.HUGGINGFACE_KEY,
@@ -248,16 +248,18 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       // Track rotation stat
       trackRotation(ai.name, keyIndex);
 
-      const aiUrl = ai.name === "Gemini"
-        ? `${ai.url}?key=${apiKey}`
-        : ai.url;
+      const aiUrl = ai.url;
+
+      const headers = { "Content-Type": "application/json" };
+      if (ai.name === "Gemini") {
+        headers["x-goog-api-key"] = apiKey;
+      } else {
+        headers["Authorization"] = `Bearer ${apiKey}`;
+      }
 
       const response = await fetch(aiUrl, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify({
           model: ai.model,
           max_tokens: 2048,
