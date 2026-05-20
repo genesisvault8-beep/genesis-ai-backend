@@ -233,7 +233,11 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       // Track rotation stat
       trackRotation(ai.name, keyIndex);
 
-      const response = await fetch(ai.url, {
+      const aiUrl = ai.name === "Gemini"
+        ? `${ai.url}?key=${apiKey}`
+        : ai.url;
+
+      const response = await fetch(aiUrl, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
@@ -261,7 +265,13 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
         continue;
       }
 
-      const data = await response.json();
+      const rawBody = await response.text();
+      if (rawBody.trim().startsWith("<")) {
+        console.log(`[INFINITY ENGINE] ${ai.name} returned HTML error — switching...`);
+        logFailure(ai.name, keyIndex, "HTML_RESPONSE", response.status);
+        continue;
+      }
+      const data = JSON.parse(rawBody);
       const text = data?.choices?.[0]?.message?.content;
 
       if (!text) {
