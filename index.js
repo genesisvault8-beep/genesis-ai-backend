@@ -105,8 +105,8 @@ function buildPool() {
     },
     {
       name: "HuggingFace",
-      url: "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct/v1/chat/completions",
-      model: "Qwen2.5-72B-Instruct",
+      url: "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3/v1/chat/completions",
+      model: "mistralai/Mistral-7B-Instruct-v0.3",
       getKey: () => process.env.HUGGINGFACE_KEY,
       hasKey: () => !!process.env.HUGGINGFACE_KEY,
       active: true
