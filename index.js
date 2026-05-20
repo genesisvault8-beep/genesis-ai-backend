@@ -91,6 +91,19 @@ function buildPool() {
       hasKey: () => !!(process.env.GEMINI_KEY || process.env.GEMINI_KEY2 || process.env.GEMINI_KEY3),
       active: true
     },
+    // GeminiFallback — uses gemini-1.5-flash which has a separate quota pool
+    {
+      name: "GeminiFallback",
+      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      model: "gemini-1.5-flash",
+      getKey: () => getRoundRobinKey("geminifallback", [
+        process.env.GEMINI_KEY,
+        process.env.GEMINI_KEY2,
+        process.env.GEMINI_KEY3
+      ].filter(Boolean)),
+      hasKey: () => !!(process.env.GEMINI_KEY || process.env.GEMINI_KEY2 || process.env.GEMINI_KEY3),
+      active: true
+    },
     {
       name: "OpenRouter",
       url: "https://openrouter.ai/api/v1/chat/completions",
@@ -261,9 +274,8 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       const aiUrl = ai.url;
 
       const headers = { "Content-Type": "application/json" };
-      if (ai.name === "Gemini") {
+      if (ai.name === "Gemini" || ai.name === "GeminiFallback") {
         headers["Authorization"] = `Bearer ${apiKey}`;
-        headers["x-goog-api-key"] = apiKey;
       } else if (ai.name === "Local") {
         // Local AI needs no auth
       } else {
@@ -286,7 +298,9 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
       if (response.status === 429) {
         console.log(`[INFINITY ENGINE] ${ai.name} rate limited — switching...`);
         logFailure(ai.name, keyIndex, "RATE_LIMITED", 429);
-        markKeyRateLimited(ai.name.toLowerCase(), keyIndex, 60000);
+        // Gemini has longer rate limit windows — use 10 min cooldown
+        const cooldown = ai.name.startsWith("Gemini") ? 600000 : 120000;
+        markKeyRateLimited(ai.name.toLowerCase(), keyIndex, cooldown);
         continue;
       }
 
