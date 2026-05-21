@@ -595,9 +595,15 @@ async function verifyMemberToken(token) {
 
 app.get("/bridge/validate", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
-  const user = await verifyMemberToken(token);
-  if (!user) return res.json({ valid: false });
-  res.json({ valid: true, username: user.username });
+  if (!token) return res.json({ valid: false });
+  try {
+    const rows = await sb("users", "GET", null, `?token=eq.${token}&select=id,username,vc_balance,rank`);
+    if (!Array.isArray(rows) || rows.length === 0) return res.json({ valid: false });
+    const user = rows[0];
+    res.json({ valid: true, username: user.username });
+  } catch(e) {
+    res.json({ valid: false, error: e.message });
+  }
 });
 app.get("/debug-token", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
