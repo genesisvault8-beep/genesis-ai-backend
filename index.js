@@ -323,13 +323,16 @@ app.post("/api/vault-ai", async (req, res) => {
 // ADMIN ROUTES
 // ============================================
 
-async function verifyAdminToken(token) {
+async function verifyMemberToken(token) {
   if (!token) return false;
   try {
-    const rows = await sb("admins", "GET", null, `?token=eq.${encodeURIComponent(token)}&select=id,username`);
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : false;
-  } catch (e) {
-    return false;
+    const clean = token.trim();
+    const rows = await sb("users", "GET", null, `?token=eq.${clean}&select=id,username,vc_balance,rank`);
+    if (!Array.isArray(rows) || rows.length === 0) return false;
+    return rows[0];
+  } catch(e) { 
+    console.log("[AUTH] verifyMemberToken error:", e.message);
+    return false; 
   }
 }
 // Failure log
