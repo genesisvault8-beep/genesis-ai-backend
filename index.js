@@ -335,6 +335,22 @@ async function verifyMemberToken(token) {
     return false; 
   }
 }
+// ============================================
+// VERIFY ADMIN TOKEN
+// ============================================
+async function verifyAdminToken(token) {
+  if (!token) return false;
+  const adminToken = process.env.ADMIN_TOKEN;
+  if (!adminToken) {
+    console.log("[ADMIN AUTH] ADMIN_TOKEN env var not set!");
+    return false;
+  }
+  if (token.trim() === adminToken.trim()) {
+    return { username: "Admin" };
+  }
+  return false;
+}
+
 // Failure log
 app.get("/admin/failures", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
