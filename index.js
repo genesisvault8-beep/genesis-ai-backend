@@ -847,3 +847,31 @@ app.patch("/admin/tool-registry/:id", async (req, res) => {
     res.json({ success: true });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+// ============================================
+// AI ANALYZE — Called by bridge backend
+// ============================================
+app.post("/ai/analyze", async (req, res) => {
+  const { tool, command, output } = req.body;
+  if (!output) return res.json({ analysis: null });
+
+  const messages = [{
+    role: "user",
+    content: `You are a cybersecurity analyst reviewing tool output.
+Tool: ${tool}
+Command: ${command}
+Output:
+${output}
+
+Provide a concise analysis:
+1. Key findings
+2. Risk level (LOW/MEDIUM/HIGH/CRITICAL)
+3. Recommended next steps`
+  }];
+
+  try {
+    const analysis = await callAI(messages, "Ghost", null);
+    res.json({ analysis });
+  } catch(e) {
+    res.json({ analysis: null, error: e.message });
+  }
+});
