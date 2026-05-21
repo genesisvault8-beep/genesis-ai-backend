@@ -71,18 +71,6 @@ function buildPool() {
       active: true
     },
     {
-      name: "Gemini",
-      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-      model: "gemini-2.0-flash",
-      getKey: () => getRoundRobinKey("gemini", [
-        process.env.GEMINI_KEY,
-        process.env.GEMINI_KEY2,
-        process.env.GEMINI_KEY3
-      ].filter(Boolean)),
-      hasKey: () => !!(process.env.GEMINI_KEY || process.env.GEMINI_KEY2 || process.env.GEMINI_KEY3),
-      active: true
-    },
-    {
       name: "OpenRouter",
       url: "https://openrouter.ai/api/v1/chat/completions",
       model: "openai/gpt-4o-mini",
@@ -118,15 +106,7 @@ function buildPool() {
       hasKey: () => !!process.env.SAMBANOVA_KEY,
       active: true
     },
-    {
-      name: "HuggingFace",
-      url: "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct/v1/chat/completions",
-      model: "meta-llama/Meta-Llama-3-8B-Instruct",
-      getKey: () => process.env.HUGGINGFACE_KEY,
-      hasKey: () => !!process.env.HUGGINGFACE_KEY,
-      active: true
-    }
-  ];
+  ]
 }
 
 let AI_POOL = buildPool();
