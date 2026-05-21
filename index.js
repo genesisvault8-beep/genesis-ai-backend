@@ -829,16 +829,6 @@ app.post("/admin/tool-registry", async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch("/admin/tool-registry/:id", async (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "").trim();
-  const admin = await verifyAdminToken(token);
-  if (!admin) return res.status(401).json({ error: "Unauthorized" });
-  const { approved } = req.body;
-  try {
-    await sb("tool_registry", "PATCH", { approved }, `?id=eq.${req.params.id}`);
-    res.json({ success: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
 // ============================================
 // AI ANALYZE — Called by bridge backend
 // ============================================
