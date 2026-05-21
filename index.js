@@ -598,7 +598,11 @@ app.get("/bridge/validate", async (req, res) => {
   if (!user) return res.json({ valid: false });
   res.json({ valid: true, username: user.username });
 });
-
+app.get("/debug-token", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const rows = await sb("users", "GET", null, `?token=eq.${token}&select=id,username`);
+  res.json({ token_received: token, token_length: token?.length, rows });
+});
 app.post("/bridge/register", async (req, res) => {
   const token = req.headers.authorization?.replace("Bearer ", "").trim();
   const user  = await verifyMemberToken(token);
