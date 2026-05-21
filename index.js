@@ -584,15 +584,19 @@ async function creditVC(user_id, username, amount, description) {
 }
 
 async function verifyMemberToken(token) {
-  if (!token) return false;
+  console.log("[AUTH] STEP 1 entered");
+  if (!token) { console.log("[AUTH] no token"); return false; }
   try {
-    const clean = token.trim();
-    const result = await pool.query(
-      'SELECT id, username, vc_balance, rank FROM users WHERE token = $1',
-      [clean]
-    );
-    return result.rows.length > 0 ? result.rows[0] : false;
-  } catch(e) { return false; }
+    const clean = String(token).trim();
+    console.log("[AUTH] STEP 2 cleaned:", clean.substring(0,8) + "...");
+    console.log("[AUTH] STEP 3 calling sb...");
+    const rows = await sb("users", "GET", null, `?token=eq.${clean}&select=id,username,vc_balance,rank`);
+    console.log("[AUTH] STEP 4 rows:", JSON.stringify(rows));
+    return rows?.[0] || false;
+  } catch(e) {
+    console.log("[AUTH] ERROR:", e.message);
+    return false;
+  }
 }
 
 // ============================================
