@@ -583,9 +583,10 @@ async function creditVC(user_id, username, amount, description) {
 async function verifyMemberToken(token) {
   if (!token) return false;
   try {
-    const rows = await sb("users", "GET", null, `?token=eq.${token}&select=id,username,vc_balance,rank`);
+    const token_clean = token.trim();
+    const rows = await sb("users", "GET", null, `?token=eq.${token_clean}&select=id,username,vc_balance,rank`);
     return Array.isArray(rows) && rows.length > 0 ? rows[0] : false;
-  } catch(e) { return false; }
+  } catch(e) { return false; }  
 }
 
 // ============================================
