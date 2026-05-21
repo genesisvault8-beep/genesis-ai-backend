@@ -106,6 +106,14 @@ function buildPool() {
       hasKey: () => !!process.env.SAMBANOVA_KEY,
       active: true
     },
+    {
+      name: "LocalLlama",
+      url: `${process.env.LOCAL_AI_URL}/v1/chat/completions`,
+      model: "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      getKey: () => "local",
+      hasKey: () => !!process.env.LOCAL_AI_URL,
+      active: true
+    },
   ]
 }
 
@@ -232,10 +240,14 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
         ? `${ai.url}?key=${apiKey}`
         : ai.url;
 
+      const authHeader = ai.name === "LocalLlama"
+        ? {}
+        : { "Authorization": `Bearer ${apiKey}` };
+
       const response = await fetch(aiUrl, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          ...authHeader,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
