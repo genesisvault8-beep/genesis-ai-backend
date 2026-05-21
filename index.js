@@ -260,7 +260,7 @@ async function infinityAsk(systemPrompt, userMessage, engineOverride = null) {
         },
         body: JSON.stringify({
           model: ai.model,
-          max_tokens: 2048,
+          max_tokens: 600,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userMessage }
