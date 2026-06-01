@@ -711,6 +711,74 @@ app.post("/admin/clear-session", async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Arena / Sandbox ───────────────────────────────────────────────────────────
+
+// Admin: post a new sandbox lab
+app.post("/admin/post-sandbox", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+
+  const { title, description, attack_type, difficulty, vc_cost, duration, lab_url, status } = req.body;
+  if (!title) return res.status(400).json({ error: "title required" });
+  if (!lab_url) return res.status(400).json({ error: "lab_url required" });
+
+  try {
+    const rows = await sb("sandboxes", "POST", {
+      title,
+      description: description || "",
+      attack_type: attack_type || "OSINT",
+      difficulty: difficulty || "easy",
+      vc_cost: parseInt(vc_cost) || 50,
+      duration: duration || "~8 MIN",
+      lab_url,
+      status: status || "active",
+      created_at: new Date().toISOString()
+    });
+    const created = Array.isArray(rows) ? rows[0] : rows;
+    res.json({ success: true, id: created?.id, sandbox: created });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Admin: delete a sandbox lab
+app.delete("/admin/delete-sandbox/:id", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+
+  const { id } = req.params;
+  try {
+    await sb("sandboxes", "DELETE", null, `?id=eq.${id}`);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Public: get all active sandbox matches (vault-arena card list)
+app.get("/arena/matches", async (req, res) => {
+  try {
+    const rows = await sb("sandboxes", "GET", null,
+      "?status=eq.active&order=created_at.desc&select=*");
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Public: leaderboard
+app.get("/arena/leaderboard", async (req, res) => {
+  try {
+    const rows = await sb("users", "GET", null,
+      "?select=username,rank,sandbox_completed,sandbox_streak,vc_earned&order=vc_earned.desc.nullslast&limit=10");
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Legacy / Status ───────────────────────────────────────────────────────────
 app.get("/infinity/status", (req, res) => {
   const status = AI_POOL.map(ai => ({
