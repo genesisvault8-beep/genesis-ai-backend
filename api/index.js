@@ -711,6 +711,65 @@ app.post("/admin/clear-session", async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Sandbox Session Endpoints ─────────────────────────────────────────────────
+
+// Enter sandbox — deduct VC if user has token
+app.post("/sandbox/enter", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const { match_id, vc_cost } = req.body;
+  if (!token) return res.json({ success: true, demo: true });
+
+  try {
+    const users = await sb("users", "GET", null, `?token=eq.${token}&select=id,username,vault_coins`);
+    const user = Array.isArray(users) ? users[0] : null;
+    if (!user) return res.json({ success: true, demo: true });
+
+    const cost = parseInt(vc_cost) || 0;
+    const newVC = Math.max(0, (user.vault_coins || 0) - cost);
+    await sb("users", "PATCH", { vault_coins: newVC }, `?id=eq.${user.id}`);
+    res.json({ success: true, vc_remaining: newVC });
+  } catch(e) {
+    res.json({ success: true, demo: true });
+  }
+});
+
+// Sandbox commentary — AI generates attack commentary
+app.post("/sandbox/commentary", async (req, res) => {
+  const { prompt, step, lab_name, attack_type } = req.body;
+  if (!prompt) return res.status(400).json({ error: "prompt required" });
+
+  try {
+    const reply = await callAI(
+      `You are CIPHER, an elite AI security researcher and mentor. You are live-commentating a ${attack_type || 'OSINT'} attack demonstration on "${lab_name || 'the target'}" for beginner cybersecurity students watching in real time. Be exciting, educational, and concise. Max 3 sentences.`,
+      prompt
+    );
+    res.json({ commentary: reply, step });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sandbox complete — award VC on completion
+app.post("/sandbox/complete", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const { match_id, reward } = req.body;
+  if (!token) return res.json({ success: true, demo: true });
+
+  try {
+    const users = await sb("users", "GET", null, `?token=eq.${token}&select=id,vault_coins,sandbox_completed`);
+    const user = Array.isArray(users) ? users[0] : null;
+    if (!user) return res.json({ success: true, demo: true });
+
+    const rewardVC = parseInt(reward) || 10;
+    const newVC = (user.vault_coins || 0) + rewardVC;
+    const newCompleted = (user.sandbox_completed || 0) + 1;
+    await sb("users", "PATCH", { vault_coins: newVC, sandbox_completed: newCompleted }, `?id=eq.${user.id}`);
+    res.json({ success: true, vc_earned: rewardVC, vc_total: newVC, completed: newCompleted });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Arena / Sandbox ───────────────────────────────────────────────────────────
 
 // Admin: post a new sandbox lab
