@@ -1,14 +1,19 @@
 {
-  "name": "ai-backend",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "genesis-ai-backend",
+  "version": "2.0.0",
+  "description": "Genesis Vault // Infinity Engine — Vercel Edition",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node api/index.js",
+    "dev": "LOCAL_DEV=true node api/index.js"
   },
   "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.4.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
     "express": "^4.18.2",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.9"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
