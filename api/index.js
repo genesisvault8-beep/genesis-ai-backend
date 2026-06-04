@@ -838,6 +838,30 @@ app.get("/arena/leaderboard", async (req, res) => {
   }
 });
 
+// ── HTML Creator ──────────────────────────────────────────────────────────────
+app.post("/admin/generate-html", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  const admin = await verifyAdminToken(token);
+  if (!admin) return res.status(401).json({ error: "Unauthorized" });
+
+  const { prompt } = req.body;
+  if (!prompt) return res.status(400).json({ error: "prompt required" });
+
+  const system = `You are an expert HTML developer. The user will describe a tool or page they want.
+You must respond with ONLY the complete, working HTML code — no explanation, no markdown, no backticks.
+Output raw HTML starting with <!DOCTYPE html>.
+Make it fully self-contained with all CSS and JS inline.
+Make it visually polished and functional.`;
+
+  try {
+    const { text, provider } = await infinityAsk(system, prompt);
+    const clean = text.replace(/^```html?\n?/i, "").replace(/```$/, "").trim();
+    res.json({ html: clean, provider });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Legacy / Status ───────────────────────────────────────────────────────────
 app.get("/infinity/status", (req, res) => {
   const status = AI_POOL.map(ai => ({
