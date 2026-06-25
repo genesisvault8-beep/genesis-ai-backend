@@ -882,6 +882,67 @@ app.get("/api/session", (req, res) => {
   res.json({ status: "success", rank: "Ghost", total_logs: 0, history: [], engine: "Infinity Engine Online ⚡" });
 });
 
+// ============================================
+// VAULTMARKETS — CODE VALIDATION
+// ============================================
+app.post("/vaultmarkets/validate", async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ valid: false, error: "No code provided" });
+
+  try {
+    const response = await fetch(
+      `${process.env.TURSO_URL}/v2/pipeline`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.TURSO_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              type: "execute",
+              stmt: {
+                sql: "SELECT code, plan, expires_at, is_active FROM codes WHERE code = ?",
+                args: [{ type: "text", value: code.trim().toUpperCase() }]
+              }
+            },
+            { type: "close" }
+          ]
+        })
+      }
+    );
+
+    const data = await response.json();
+    const rows = data?.results?.[0]?.response?.result?.rows;
+
+    if (!rows || rows.length === 0) {
+      return res.json({ valid: false, error: "INVALID CODE" });
+    }
+
+    // Parse row values
+    const row = rows[0];
+    const codeVal   = row[0]?.value;
+    const plan      = row[1]?.value;
+    const expiresAt = row[2]?.value;
+    const isActive  = row[3]?.value;
+
+    if (!isActive || isActive === "0" || isActive === 0) {
+      return res.json({ valid: false, error: "CODE REVOKED" });
+    }
+
+    if (expiresAt && expiresAt !== "null" && Date.now() > parseInt(expiresAt) * 1000) {
+      return res.json({ valid: false, error: "CODE EXPIRED — RENEW YOUR SUBSCRIPTION" });
+    }
+
+    return res.json({ valid: true, plan: plan || "STARTER" });
+
+  } catch (e) {
+    console.log("[VAULTMARKETS] Validation error:", e.message);
+    return res.status(500).json({ valid: false, error: "SERVER ERROR — TRY AGAIN" });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 // On Vercel this file is imported as a serverless function — no listen() needed.
 // For local dev, listen normally.
