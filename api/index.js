@@ -943,6 +943,122 @@ app.post("/vaultmarkets/validate", async (req, res) => {
   }
 });
 
+// ============================================
+// VAULTMARKETS — ADMIN AUTH + CODE MANAGEMENT
+// ============================================
+const crypto = require("crypto");
+
+const VM_ADMIN_SECRET = process.env.VM_ADMIN_SECRET || "genesis2026";
+const VM_JWT_SECRET   = process.env.VM_JWT_SECRET   || "vm_jwt_x9k2mN7qR4pL8wZ3";
+
+function signVMToken(payload) {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body   = Buffer.from(JSON.stringify({ ...payload, iat: Date.now() })).toString("base64url");
+  const sig    = crypto.createHmac("sha256", VM_JWT_SECRET).update(`${header}.${body}`).digest("base64url");
+  return `${header}.${body}.${sig}`;
+}
+
+function verifyVMToken(token) {
+  try {
+    if (!token) return null;
+    const [header, body, sig] = token.split(".");
+    const expected = crypto.createHmac("sha256", VM_JWT_SECRET).update(`${header}.${body}`).digest("base64url");
+    if (sig !== expected) return null;
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+    if (Date.now() - payload.iat > 72 * 60 * 60 * 1000) return null; // 3 day expiry
+    return payload;
+  } catch { return null; }
+}
+
+async function turso(sql, args = []) {
+  const res = await fetch(`${process.env.TURSO_URL}/v2/pipeline`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.TURSO_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      requests: [
+        { type: "execute", stmt: { sql, args: args.map(v => ({ type: "text", value: String(v) })) } },
+        { type: "close" }
+      ]
+    })
+  });
+  const data = await res.json();
+  return data?.results?.[0]?.response?.result;
+}
+
+// Admin login — returns JWT
+app.post("/vaultmarkets/admin/login", (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: "Password required" });
+  if (password !== VM_ADMIN_SECRET) return res.status(401).json({ error: "INVALID PASSWORD" });
+  const token = signVMToken({ role: "vm_admin" });
+  res.json({ success: true, token });
+});
+
+// Generate + save code to Turso
+app.post("/vaultmarkets/admin/generate-code", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  if (!verifyVMToken(token)) return res.status(401).json({ error: "Unauthorized" });
+
+  const { plan, days } = req.body;
+  if (!plan || !days) return res.status(400).json({ error: "plan and days required" });
+
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "VM-";
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+
+  const expiresAt = Math.floor((Date.now() + parseInt(days) * 86400000) / 1000);
+  const createdAt = new Date().toISOString();
+
+  try {
+    await turso(
+      "INSERT INTO codes (code, plan, expires_at, is_active, created_at) VALUES (?, ?, ?, 1, ?)",
+      [code, plan, expiresAt, createdAt]
+    );
+    res.json({ success: true, code, plan, expires_at: expiresAt });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Fetch all codes from Turso
+app.get("/vaultmarkets/admin/codes", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  if (!verifyVMToken(token)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const result = await turso(
+      "SELECT code, plan, expires_at, is_active, created_at FROM codes ORDER BY created_at DESC"
+    );
+    const rows = result?.rows || [];
+    const codes = rows.map(r => ({
+      code:       r[0]?.value,
+      plan:       r[1]?.value,
+      expires_at: r[2]?.value,
+      is_active:  r[3]?.value,
+      created_at: r[4]?.value
+    }));
+    res.json({ success: true, codes });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Revoke a code
+app.patch("/vaultmarkets/admin/revoke/:code", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  if (!verifyVMToken(token)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    await turso("UPDATE codes SET is_active = 0 WHERE code = ?", [req.params.code]);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 // On Vercel this file is imported as a serverless function — no listen() needed.
 // For local dev, listen normally.
