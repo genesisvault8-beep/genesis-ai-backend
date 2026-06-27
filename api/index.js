@@ -944,6 +944,99 @@ app.post("/vaultmarkets/validate", async (req, res) => {
 });
 
 // ============================================
+// VAULTMARKETS — LIVE ODDS (Real matches from The Odds API)
+// ============================================
+async function getTursoOddsApiKey() {
+  try {
+    const res = await fetch(`${process.env.TURSO_URL}/v2/pipeline`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.TURSO_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            type: "execute",
+            stmt: {
+              sql: "SELECT value FROM vm_config WHERE key = 'odds_api_key' LIMIT 1"
+            }
+          },
+          { type: "close" }
+        ]
+      })
+    });
+    
+    const data = await res.json();
+    const rows = data?.results?.[0]?.response?.result?.rows;
+    if (rows && rows.length > 0) {
+      return rows[0][0]?.value;
+    }
+    return null;
+  } catch (e) {
+    console.log("[TURSO] Error fetching API key:", e.message);
+    return null;
+  }
+}
+
+app.get("/vaultmarkets/live-odds", async (req, res) => {
+  try {
+    // Get API key from env first, then fallback to Turso
+    let oddsApiKey = process.env.ODDS_API_KEY;
+    
+    if (!oddsApiKey) {
+      oddsApiKey = await getTursoOddsApiKey();
+    }
+
+    if (!oddsApiKey) {
+      return res.status(400).json({ error: "API key not configured — add to admin panel" });
+    }
+
+    // Fetch live odds from The Odds API for World Cup
+    const oddsResponse = await fetch(
+      `https://api.the-odds-api.com/v4/sports/soccer_world_cup/events?apiKey=${oddsApiKey}`
+    );
+
+    if (!oddsResponse.ok) {
+      return res.status(400).json({ error: "Failed to fetch odds from API", status: oddsResponse.status });
+    }
+
+    const oddsData = await oddsResponse.json();
+
+    // Transform and return formatted odds
+    const formattedOdds = oddsData.data.slice(0, 8).map(match => {
+      const homeTeam = match.home_team;
+      const awayTeam = match.away_team;
+      const matchTime = new Date(match.commence_time).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+      
+      // Get best odds from available bookmakers
+      let bestOdd = 1.5;
+      if (match.bookmakers && match.bookmakers.length > 0) {
+        const markets = match.bookmakers[0].markets;
+        if (markets && markets.length > 0) {
+          const odds = markets[0].outcomes;
+          bestOdd = Math.max(...odds.map(o => o.price)).toFixed(2);
+        }
+      }
+
+      return {
+        league: 'WORLD CUP',
+        match: `${homeTeam} vs ${awayTeam}`,
+        time: matchTime,
+        odds: parseFloat(bestOdd),
+        badge: 'badge-hot',
+        label: '🔥 LIVE'
+      };
+    });
+
+    res.json({ success: true, odds: formattedOdds });
+  } catch (e) {
+    console.log("[VAULTMARKETS] Live odds error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================
 // VAULTMARKETS — ADMIN AUTH + CODE MANAGEMENT
 // ============================================
 const crypto = require("crypto");
