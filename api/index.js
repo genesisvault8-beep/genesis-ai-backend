@@ -946,47 +946,37 @@ app.post("/vaultmarkets/validate", async (req, res) => {
 // ============================================
 // VAULTMARKETS — LIVE ODDS (Real matches from The Odds API)
 // ============================================
-async function getTursoOddsApiKey() {
+async function getVmConfig(key) {
   try {
-    const res = await fetch(`${process.env.TURSO_URL}/v2/pipeline`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.TURSO_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        requests: [
-          {
-            type: "execute",
-            stmt: {
-              sql: "SELECT value FROM vm_config WHERE key = 'odds_api_key' LIMIT 1"
-            }
-          },
-          { type: "close" }
-        ]
-      })
-    });
-    
-    const data = await res.json();
-    const rows = data?.results?.[0]?.response?.result?.rows;
-    if (rows && rows.length > 0) {
-      return rows[0][0]?.value;
-    }
-    return null;
+    const result = await turso("SELECT value FROM vm_config WHERE key = ?", [key]);
+    return result?.rows?.[0]?.[0]?.value ?? null;
   } catch (e) {
-    console.log("[TURSO] Error fetching API key:", e.message);
+    console.log("[TURSO] Error fetching vm_config:", e.message);
     return null;
+  }
+}
+
+async function setVmConfig(key, value) {
+  await turso("CREATE TABLE IF NOT EXISTS vm_config (key TEXT PRIMARY KEY, value TEXT)");
+  const existing = await turso("SELECT key FROM vm_config WHERE key = ?", [key]);
+  if (existing?.rows?.length > 0) {
+    await turso("UPDATE vm_config SET value = ? WHERE key = ?", [value, key]);
+  } else {
+    await turso("INSERT INTO vm_config (key, value) VALUES (?, ?)", [key, value]);
   }
 }
 
 app.get("/vaultmarkets/live-odds", async (req, res) => {
   try {
-    // Get API key from env first, then fallback to Turso
-    let oddsApiKey = process.env.ODDS_API_KEY;
-    
-    if (!oddsApiKey) {
-      oddsApiKey = await getTursoOddsApiKey();
+    // Odds only go live if the admin has explicitly flipped the toggle —
+    // a key being present isn't enough on its own.
+    const liveMode = (await getVmConfig("odds_live_mode")) === "1";
+    if (!liveMode) {
+      return res.json({ success: false, simulated: true });
     }
+
+    // Get API key from env first, then fallback to Turso (admin-set)
+    let oddsApiKey = process.env.ODDS_API_KEY || (await getVmConfig("odds_api_key"));
 
     if (!oddsApiKey) {
       return res.status(400).json({ error: "API key not configured — add to admin panel" });
@@ -1147,6 +1137,36 @@ app.patch("/vaultmarkets/admin/revoke/:code", async (req, res) => {
   try {
     await turso("UPDATE codes SET is_active = 0 WHERE code = ?", [req.params.code]);
     res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============================================
+// VAULTMARKETS — ODDS CONFIG (persists Activate/Go Live toggle to Turso)
+// ============================================
+app.post("/vaultmarkets/admin/odds-config", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  if (!verifyVMToken(token)) return res.status(401).json({ error: "Unauthorized" });
+
+  const { apiKey, useRealApi } = req.body;
+  try {
+    if (apiKey !== undefined) await setVmConfig("odds_api_key", apiKey);
+    if (useRealApi !== undefined) await setVmConfig("odds_live_mode", useRealApi ? "1" : "0");
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/vaultmarkets/admin/odds-config", async (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "").trim();
+  if (!verifyVMToken(token)) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const apiKey = (await getVmConfig("odds_api_key")) || "";
+    const useRealApi = (await getVmConfig("odds_live_mode")) === "1";
+    res.json({ success: true, apiKey, useRealApi });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
